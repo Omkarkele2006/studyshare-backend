@@ -53,8 +53,7 @@ router.post('/signup', async (req, res) => {
       },
     });
 
-    const verificationUrl = `http://localhost:5000/api/auth/verify-email/${verificationToken}`; // We use the backend URL for API testing
-
+const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${verificationToken}`;
     await transporter.sendMail({
       from: `"StudyShare" <${process.env.EMAIL_USER}>`,
       to: user.email,
