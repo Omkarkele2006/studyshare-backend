@@ -6,7 +6,9 @@ require('dotenv').config(); // This loads the variables from .env
 const app = express();
 
 // --- Middlewares ---
-app.use(cors()); // Allows requests from different origins (our frontend)
+app.use(cors({
+  origin: '*' // Allows requests from any origin
+})); // Allows requests from different origins (our frontend)
 app.use(express.json()); // Allows our app to understand JSON format
 
 app.use('/api/auth', require('./routes/auth'));
