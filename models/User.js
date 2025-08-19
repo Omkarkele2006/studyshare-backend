@@ -12,6 +12,9 @@ const UserSchema = new mongoose.Schema({
   },
   emailVerificationToken: { type: String },
   emailVerificationTokenExpires: { type: Date },
-}, { timestamps: true }); // Adds createdAt and updatedAt fields automatically
+  // --- ADD THESE TWO LINES ---
+  passwordResetToken: { type: String },
+  passwordResetTokenExpires: { type: Date },
+}, { timestamps: true });
 
 module.exports = mongoose.model('User', UserSchema);

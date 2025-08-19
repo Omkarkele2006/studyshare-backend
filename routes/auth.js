@@ -132,4 +132,90 @@ router.post('/login', async (req, res) => {
   }
 });
 
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      // We send a success message even if the user doesn't exist for security reasons
+      // This prevents people from checking which emails are registered.
+      return res.json({ msg: 'If a user with that email exists, a password reset link has been sent.' });
+    }
+
+    // 1. Create a reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    user.passwordResetToken = resetToken;
+    user.passwordResetTokenExpires = Date.now() + 3600000; // 1 hour from now
+    await user.save();
+
+    // 2. Send the email
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+    await transporter.sendMail({
+      from: `"StudyShare" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: 'Password Reset Request for StudyShare',
+      html: `<p>Hi there,</p>
+             <p>You requested a password reset. Please click the link below to set a new password:</p>
+             <a href="${resetUrl}">${resetUrl}</a>
+             <p>This link will expire in one hour. If you did not request this, please ignore this email.</p>`,
+    });
+
+    res.json({ msg: 'If a user with that email exists, a password reset link has been sent.' });
+
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+
+// --- NEW: RESET PASSWORD ROUTE ---
+// @route   POST /api/auth/reset-password/:token
+// @desc    Reset a user's password
+// @access  Public
+router.post('/reset-password/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    // 1. Find the user by the token and check if it's still valid
+    const user = await User.findOne({
+      passwordResetToken: token,
+      passwordResetTokenExpires: { $gt: Date.now() }, // $gt means "greater than"
+    });
+
+    if (!user) {
+      return res.status(400).json({ msg: 'Invalid or expired password reset token.' });
+    }
+
+    // 2. Hash the new password
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(password, salt);
+
+    // 3. Invalidate the token so it can't be used again
+    user.passwordResetToken = undefined;
+    user.passwordResetTokenExpires = undefined;
+
+    await user.save();
+
+    res.json({ msg: 'Password has been reset successfully! You can now log in with your new password.' });
+
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+
 module.exports = router;
+
