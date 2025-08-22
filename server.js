@@ -26,6 +26,8 @@ app.use(cors({
 app.use(express.json());
 // Add this line in server.js
 app.use('/api/users', require('./routes/users'));
+// Add this line in server.js
+app.use('/api/requests', require('./routes/requests'));
 // --- Database Connection ---
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected successfully!'))
