@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const { protect, admin } = require('../middleware/authMiddleware');
 const Note = require('../models/Note');
 
@@ -88,6 +89,40 @@ router.get('/download/:id', protect, async (req, res) => {
     if (err.code === 'ENOENT') { // Handle case where file is not found on the server
         return res.status(404).json({ msg: 'File not found on server.' });
     }
+    res.status(500).send('Server Error');
+  }
+});
+
+// --- NEW: DELETE A NOTE ROUTE ---
+// @route   DELETE /api/notes/:id
+// @desc    Delete a note
+// @access  Private/Admin
+router.delete('/:id', [protect, admin], async (req, res) => {
+  try {
+    const note = await Note.findById(req.params.id);
+
+    if (!note) {
+      return res.status(404).json({ msg: 'Note not found' });
+    }
+
+    // 1. Define the path to the file
+    const filePath = path.join(__dirname, '..', note.filePath);
+
+    // 2. Delete the file from the server's filesystem
+    fs.unlink(filePath, async (err) => {
+      if (err) {
+        // If the file doesn't exist, we can still proceed to delete the DB entry
+        console.error("Error deleting file, but proceeding:", err);
+      }
+
+      // 3. Delete the note from the database
+      await Note.findByIdAndDelete(req.params.id);
+      
+      res.json({ msg: 'Note removed successfully' });
+    });
+
+  } catch (err) {
+    console.error(err.message);
     res.status(500).send('Server Error');
   }
 });
