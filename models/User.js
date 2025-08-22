@@ -10,9 +10,10 @@ const UserSchema = new mongoose.Schema({
     enum: ['student', 'admin'],
     default: 'student'
   },
-  emailVerificationToken: { type: String },
-  emailVerificationTokenExpires: { type: Date },
-  // --- ADD THESE TWO LINES ---
+  // --- REPLACE THE OLD TOKEN FIELDS ---
+  otp: { type: String },
+  otpExpires: { type: Date },
+  // --- WITH THESE NEW OTP FIELDS ---
   passwordResetToken: { type: String },
   passwordResetTokenExpires: { type: Date },
 }, { timestamps: true });

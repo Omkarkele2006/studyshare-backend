@@ -4,9 +4,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
-const User = require('../models/User'); // Ensure this is uppercase 'U'
+const User = require('../models/User');
 
-// ... (signup route)
+// @route   POST /api/auth/signup
+// @desc    Register a new user and send OTP
+// @access  Public
 router.post('/signup', async (req, res) => {
   try {
     const { email, prn, password } = req.body;
@@ -22,9 +24,9 @@ router.post('/signup', async (req, res) => {
 
     user = new User({ email, prn, password });
 
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    user.emailVerificationToken = verificationToken;
-    user.emailVerificationTokenExpires = Date.now() + 3600000;
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    user.otp = otp;
+    user.otpExpires = Date.now() + 600000; // OTP is valid for 10 minutes
 
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(password, salt);
@@ -39,21 +41,20 @@ router.post('/signup', async (req, res) => {
       },
     });
 
-    // --- THIS IS THE CRUCIAL FIX ---
-    // It now uses the FRONTEND_URL environment variable
-    const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${verificationToken}`;
-
     await transporter.sendMail({
       from: `"StudyShare" <${process.env.EMAIL_USER}>`,
       to: user.email,
-      subject: 'Verify Your Email for StudyShare',
+      subject: 'Your Verification Code for StudyShare',
       html: `<p>Hi there,</p>
-             <p>Thanks for signing up! Please click the link below to verify your email address:</p>
-             <a href="${verificationUrl}">${verificationUrl}</a>
-             <p>This link will expire in one hour.</p>`,
+             <p>Thanks for signing up! Your verification code is:</p>
+             <h2 style="font-size: 24px; letter-spacing: 2px;"><b>${otp}</b></h2>
+             <p>This code will expire in 10 minutes.</p>`,
     });
 
-    res.status(201).json({ msg: 'User registered! Please check your email to verify your account.' });
+    res.status(201).json({ 
+        msg: 'User registered! Please check your email for the verification code.',
+        email: user.email 
+    });
 
   } catch (err) {
     console.error(err.message);
@@ -61,23 +62,26 @@ router.post('/signup', async (req, res) => {
   }
 });
 
-// ... (verify-email and login routes remain the same)
-
-router.get('/verify-email/:token', async (req, res) => {
+// @route   POST /api/auth/verify-otp
+// @desc    Verify user's email with OTP
+// @access  Public
+router.post('/verify-otp', async (req, res) => {
     try {
-        const token = req.params.token;
+        const { email, otp } = req.body;
+
         const user = await User.findOne({
-            emailVerificationToken: token,
-            emailVerificationTokenExpires: { $gt: Date.now() }
+            email: email,
+            otp: otp,
+            otpExpires: { $gt: Date.now() }
         });
 
         if (!user) {
-            return res.status(400).json({ msg: 'Invalid or expired verification token.' });
+            return res.status(400).json({ msg: 'Invalid or expired OTP.' });
         }
 
         user.isVerified = true;
-        user.emailVerificationToken = undefined;
-        user.emailVerificationTokenExpires = undefined;
+        user.otp = undefined;
+        user.otpExpires = undefined;
         await user.save();
 
         res.json({ msg: 'Email verified successfully! You can now log in.' });
@@ -88,6 +92,9 @@ router.get('/verify-email/:token', async (req, res) => {
     }
 });
 
+// @route   POST /api/auth/login
+// @desc    Authenticate user & get token
+// @access  Public
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -132,24 +139,23 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// @route   POST /api/auth/forgot-password
+// @desc    Send a password reset link
+// @access  Public
 router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
     const user = await User.findOne({ email });
 
     if (!user) {
-      // We send a success message even if the user doesn't exist for security reasons
-      // This prevents people from checking which emails are registered.
       return res.json({ msg: 'If a user with that email exists, a password reset link has been sent.' });
     }
 
-    // 1. Create a reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.passwordResetToken = resetToken;
-    user.passwordResetTokenExpires = Date.now() + 3600000; // 1 hour from now
+    user.passwordResetTokenExpires = Date.now() + 3600000; // 1 hour
     await user.save();
 
-    // 2. Send the email
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -164,10 +170,9 @@ router.post('/forgot-password', async (req, res) => {
       from: `"StudyShare" <${process.env.EMAIL_USER}>`,
       to: user.email,
       subject: 'Password Reset Request for StudyShare',
-      html: `<p>Hi there,</p>
-             <p>You requested a password reset. Please click the link below to set a new password:</p>
+      html: `<p>You requested a password reset. Please click the link below to set a new password:</p>
              <a href="${resetUrl}">${resetUrl}</a>
-             <p>This link will expire in one hour. If you did not request this, please ignore this email.</p>`,
+             <p>This link will expire in one hour.</p>`,
     });
 
     res.json({ msg: 'If a user with that email exists, a password reset link has been sent.' });
@@ -178,8 +183,6 @@ router.post('/forgot-password', async (req, res) => {
   }
 });
 
-
-// --- NEW: RESET PASSWORD ROUTE ---
 // @route   POST /api/auth/reset-password/:token
 // @desc    Reset a user's password
 // @access  Public
@@ -188,27 +191,24 @@ router.post('/reset-password/:token', async (req, res) => {
     const { token } = req.params;
     const { password } = req.body;
 
-    // 1. Find the user by the token and check if it's still valid
     const user = await User.findOne({
       passwordResetToken: token,
-      passwordResetTokenExpires: { $gt: Date.now() }, // $gt means "greater than"
+      passwordResetTokenExpires: { $gt: Date.now() },
     });
 
     if (!user) {
       return res.status(400).json({ msg: 'Invalid or expired password reset token.' });
     }
 
-    // 2. Hash the new password
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(password, salt);
 
-    // 3. Invalidate the token so it can't be used again
     user.passwordResetToken = undefined;
     user.passwordResetTokenExpires = undefined;
 
     await user.save();
 
-    res.json({ msg: 'Password has been reset successfully! You can now log in with your new password.' });
+    res.json({ msg: 'Password has been reset successfully!' });
 
   } catch (err) {
     console.error(err.message);
@@ -216,6 +216,4 @@ router.post('/reset-password/:token', async (req, res) => {
   }
 });
 
-
 module.exports = router;
-
